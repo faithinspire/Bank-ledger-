@@ -1,0 +1,15 @@
+
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>body{background:#0b3b5c;color:#fff;} .card{background:#08304a;}</style></head><body>
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3"><h3>Admin Dashboard</h3><button class="btn btn-sm btn-light" onclick="logout()">Logout</button></div>
+  <div class="row"><div class="col-md-4"><div class="card p-3 mb-3"><h5>Pending Agents</h5><ul id="agentsList" class="list-group"></ul></div><div class="card p-3 mb-3"><h5>Pending Loans</h5><ul id="loansList" class="list-group"></ul></div></div><div class="col-md-8"><div class="card p-3 mb-3"><h5>All Customers</h5><ul id="customersList" class="list-group"></ul></div></div></div></div>
+<script>
+async function api(path, opts={}){ opts.headers = opts.headers || {}; opts.headers['Content-Type']='application/json'; if(opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body); const res=await fetch(path, opts); if(!res.ok) throw new Error(await res.text()); return res.json(); }
+async function load(){ const agents = await api('/agents'); const al=document.getElementById('agentsList'); al.innerHTML=''; agents.filter(a=>!a.approved).forEach(a=>{ const li=document.createElement('li'); li.className='list-group-item'; li.innerHTML = `${a.name} (${a.username}) <button class="btn btn-sm btn-success float-end" onclick="approveAgent('${a.id}')">Approve</button>`; al.appendChild(li); }); const loans = await api('/loans'); const ll=document.getElementById('loansList'); ll.innerHTML=''; loans.filter(l=>l.status==='pending').forEach(l=>{ const li=document.createElement('li'); li.className='list-group-item'; li.innerHTML = `Loan ${l.id} — ₦${l.amount} <button class="btn btn-sm btn-success float-end ms-2" onclick="approveLoan('${l.id}')">Approve</button>`; ll.appendChild(li); }); const customers = await api('/customers'); const cl=document.getElementById('customersList'); cl.innerHTML=''; customers.forEach(c=> cl.innerHTML += `<li class='list-group-item'>${c.name} — ${c.accountNumber} — ₦${c.balance}</li>`); }
+async function approveAgent(id){ await api('/admin/approve-agent', { method:'POST', body:{ agentId: id }}); load(); }
+async function approveLoan(id){ await api('/admin/loan/'+id+'/approve', { method:'POST' }); load(); }
+function logout(){ localStorage.removeItem('bl_user'); location.href='/'; }
+load();
+</script></body></html>

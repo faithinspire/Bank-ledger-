@@ -1,17 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Millennium Potter - Agent Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-blue: #0b3b5c;
+            --secondary-blue: #08304a;
+            --accent-gold: #d4af37;
+            --light-gold: #f4e4bc;
+            --white: #ffffff;
+            --success-green: #28a745;
+            --warning-orange: #ffc107;
+            --danger-red: #dc3545;
+        }
 
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>body{background:#062b44;color:#fff;} .card{background:#07324a;}</style></head><body>
-<div class="container py-4"><div class="d-flex justify-content-between align-items-center mb-3"><h3>Agent Dashboard</h3><button class="btn btn-sm btn-light" onclick="logout()">Logout</button></div>
-<div class="row"><div class="col-md-5"><div class="card p-3 mb-3"><h5>Register Customer</h5><input id="cname" class="form-control mb-2" placeholder="Customer name"><input id="cphone" class="form-control mb-2" placeholder="Customer phone"><button class="btn btn-success" onclick="registerCustomer()">Register</button></div><div class="card p-3 mb-3"><h5>Transactions</h5><select id="txCust" class="form-select mb-2"></select><input id="txAmt" class="form-control mb-2" placeholder="Amount (+ deposit, - withdraw)"><button class="btn btn-primary" onclick="doTx()">Submit</button></div></div><div class="col-md-7"><div class="card p-3 mb-3"><h5>Customers</h5><ul id="customersList" class="list-group"></ul></div><div class="card p-3 mb-3"><h5>Loan Application</h5><select id="loanCust" class="form-select mb-2"></select><input id="loanAmt" class="form-control mb-2" placeholder="Amount"><input id="loanDuration" class="form-control mb-2" placeholder="Duration (days or months)"><select id="loanMode" class="form-select mb-2"><option value="fixed">Fixed installment</option><option value="interest">Interest mode</option></select><input id="loanInstall" class="form-control mb-2" placeholder="Installment (for fixed)"><input id="loanInterest" class="form-control mb-2" placeholder="Interest rate % (for interest)"><input id="guarantor" class="form-control mb-2" placeholder="Guarantor name"><button class="btn btn-warning" onclick="applyLoan()">Submit Loan Request</button><div id="loanPreview" class="mt-3"></div></div><div class="card p-3 mb-3"><h5>Your Loans</h5><ul id="loansList" class="list-group"></ul></div></div></div></div>
-<script>
-async function api(path, opts={}){ opts.headers = opts.headers || {}; opts.headers['Content-Type']='application/json'; if(opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body); const res = await fetch(path, opts); if(!res.ok){ alert('Error: '+await res.text()); throw new Error(await res.text()); } return res.json(); }
-function logout(){ localStorage.removeItem('bl_user'); location.href='/'; }
-async function load(){ const customers = await api('/customers'); const cl=document.getElementById('customersList'); const sel=document.getElementById('loanCust'); const tx=document.getElementById('txCust'); cl.innerHTML=''; sel.innerHTML=''; tx.innerHTML=''; customers.forEach(c=>{ cl.innerHTML += `<li class='list-group-item'>${c.name} — ${c.accountNumber} — ₦${c.balance}</li>`; const o=document.createElement('option'); o.value=c.id; o.text=`${c.name} (${c.accountNumber})`; sel.appendChild(o); tx.appendChild(o.cloneNode(true)); }); const loans = await api('/loans'); const ll=document.getElementById('loansList'); ll.innerHTML=''; loans.forEach(l=> ll.innerHTML += `<li class='list-group-item'>Loan ${l.id} — Cust:${l.customerId} — ₦${l.amount} — ${l.status}</li>`); }
-async function registerCustomer(){ const name=document.getElementById('cname').value; const phone=document.getElementById('cphone').value; await api('/customer/register', { method:'POST', body:{ name, phone }}); alert('Customer registered'); load(); }
-async function doTx(){ const customerId=document.getElementById('txCust').value; const amt=Number(document.getElementById('txAmt').value); await api('/transaction', { method:'POST', body:{ customerId, amount: amt }}); alert('Transaction recorded'); load(); }
-function showLoanPreview(data){ let html = `<strong>Preview:</strong> Periods: ${data.periods}, Total: ₦${data.total.toFixed(2)}<ul>`; data.schedule.slice(0,5).forEach(s=> html += `<li>Period ${s.period} — ₦${s.payment}</li>`); html += '</ul>'; document.getElementById('loanPreview').innerHTML = html; }
-async function applyLoan(){ const customerId=document.getElementById('loanCust').value; const amount=document.getElementById('loanAmt').value; const duration=document.getElementById('loanDuration').value; const mode=document.getElementById('loanMode').value; const installment=document.getElementById('loanInstall').value; const interest=document.getElementById('loanInterest').value; const guarantor=document.getElementById('guarantor').value; const calc = await api('/loan/calculate', { method:'POST', body:{ amount, installment, mode, interest_rate: interest, duration }}); showLoanPreview(calc); const r = confirm('Submit loan request to admin? (Preview shown)'); if(!r) return; await api('/loan/apply', { method:'POST', body:{ customerId, amount, duration, frequency:'daily', installment, mode, interest_rate: interest, guarantor }}); alert('Loan request submitted'); load(); }
-load();
-</script>
-</body></html>
+        body {
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--secondary-blue) 100%);
+            color: var(--white);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            min-height: calc(100vh - 70px);
+        }
+
+        .sidebar .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            border-radius: 10px;
+            margin: 5px 10px;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            background: rgba(212, 175, 55, 0.2);
+            color: var(--accent-gold);
+        }
+
+        .main-content {
+            padding: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+        }
+
+        .table {
+            color: var(--white);
+        }
+
+        .table th {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            font-weight: 600;
+        }
+
+        .table td {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, var(--accent-gold), #b8941f);
+            border: none;
+            border-radius: 8px;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(45deg, #b8941f, var(--accent-gold));
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: linear-gradient(45deg, var(--success-green), #20c997);
+            border: none;
+            border-radius: 8px;
+        }
+
+        .btn-warning {
+            background: linear-gradient(45deg, var(--warning-orange), #fd7e14);
+            border: none;
+            border-radius: 8px;
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, var(--danger-red), #e74c3c);
+            border: none;
+            border-radius: 8px;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: var(--warning-orange);
+        }
+
+        .status-approved {
+            background: rgba(40, 167, 69, 0.2);
+            color: var(--success-green);
+        }
+
+        .status-rejected {
+            background: rgba(220, 53, 69, 0.2);
+            color: var(--danger-red);
+        }
+
+        .modal-content {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--white);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .modal-footer {
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .form-control, .form-select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: var(--white);
+            border-radius: 8px;
+        }
+
+        .form-control:focus, .form-select:focus {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: var(--accent-gold);
+            box-shadow: 0 0 0 0.2rem rgba(212, 175, 55, 0.25);
+            color: var(--white);
+        }
+
+        .form-control::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .loading {
+            display: none;
+        }
+
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+        }
+
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.2);
+            color: #51cf66;
+        }
+
+        .alert-danger {
+            background: rgba(220, 53, 69, 0.2);
+            color: #ff6b6b;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .payment-checkbox {
+            width: 20px;
+            height: 20px;
+            accent-color: var(--accent-gold);
+        }
+
+        .ledger-table {
+            font-size: 0.9rem;
+        }
+
+        .ledger-table th,
+        .ledger-table td {
+            padding: 8px 4px;
+            text-align: center;
+        }
+
+        .customer-form-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .form-section-title {
+            color: var(--accent-gold);
+            font-weight: 600;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+            padding-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-user-tie me-2"></i>
+                <strong>Millennium Potter</strong> - Agent Dashboard
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">
+                    <i class="fas fa-user me-1"></i>
+                    <span id="agentName">Agent</span>
+                </span>
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="d-flex flex-column p-3">
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link active" onclick="showTab('dashboard')">
+                                <i class="fas fa-tachometer-alt me-2"></i>
+                                Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" onclick="showTab('customers')">
+                                <i class="fas fa-user-friends me-2"></i>
+                                Customer Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" onclick="showTab('loans')">
+                                <i class="fas fa-money-bill-wave me-2"></i>
+                                Loan Applications
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" onclick="showTab('transactions')">
+                                <i class="fas fa-chart-line me-2"></i>
+                                Daily Transactions
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" onclick="showTab('ledger')">
+                                <i class="fas fa-table me-2"></i>
+                                Transaction Ledger
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" onclick="showTab('reports')">
+                                <i class="fas fa-file-alt me-2"></i>
+                                Reports
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10 main-content">
+                <!-- Alert Container -->
+                <div id="alertContainer"></div>
+
+                <!-- Dashboard Tab -->
+                <div id="dashboard" class="tab-content active">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-tachometer-alt me-2"></i>Agent Dashboard</h2>
+                        <button class="btn btn-primary" onclick="refreshStats()">
+                            <i class="fas fa-sync-alt me-1"></i>Refresh
+                        </button>
+                    </div>
+
+                    <!-- Statistics Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <div class="card stat-card">
+                                <div class="stat-icon text-primary">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                                <div class="stat-number" id="totalCustomers">0</div>
+                                <div class="stat-label">My Customers</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card stat-card">
+                                <div class="stat-icon text-warning">
+                                    <i class="fas fa-money-bill-wave"></i>
+                                </div>
+                                <div class="stat-number" id="pendingLoans">0</div>
+                                <div class="stat-label">Pending Loans</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card stat-card">
+                                <div class="stat-icon text-success">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                                <div class="stat-number" id="approvedLoans">0</div>
+                                <div class="stat-label">Approved Loans</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card stat-card">
+                                <div class="stat-icon text-info">
+                                    <i class="fas fa-chart-line"></i>
+                                </div>
+                                <div class="stat-number" id="todayCollections">₦0</div>
+                                <div class="stat-label">Today's Collections</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-clock me-2"></i>Recent Activities</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="recentActivities" class="list-group list-group-flush">
+                                        <!-- Recent activities will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-chart-bar me-2"></i>Quick Actions</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-grid gap-2">
+                                        <button class="btn btn-success" onclick="showTab('customers')">
+                                            <i class="fas fa-user-plus me-2"></i>Register New Customer
+                                        </button>
+                                        <button class="btn btn-warning" onclick="showTab('loans')">
+                                            <i class="fas fa-file-alt me-2"></i>Submit Loan Application
+                                        </button>
+                                        <button class="btn btn-primary" onclick="showTab('transactions')">
+                                            <i class="fas fa-money-bill me-2"></i>Record Daily Payment
+                                        </button>
+                                        <button class="btn btn-info" onclick="showTab('ledger')">
+                                            <i class="fas fa-table me-2"></i>View Transaction Ledger
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Customers Tab -->
+                <div id="customers" class="tab-content">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-user-friends me-2"></i>Customer Management</h2>
+                        <div>
+                            <button class="btn btn-primary me-2" onclick="refreshCustomers()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-success" onclick="showAddCustomerModal()">
+                                <i class="fas fa-plus me-1"></i>Add Customer
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Account Number</th>
+                                            <th>Name</th>
+                                            <th>Phone</th>
+                                            <th>Loan Amount</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="customersTableBody">
+                                        <!-- Customers will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loans Tab -->
+                <div id="loans" class="tab-content">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-money-bill-wave me-2"></i>Loan Applications</h2>
+                        <div>
+                            <button class="btn btn-primary me-2" onclick="refreshLoans()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-success" onclick="showAddLoanModal()">
+                                <i class="fas fa-plus me-1"></i>New Loan Application
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Customer</th>
+                                            <th>Loan Amount</th>
+                                            <th>Daily Payment</th>
+                                            <th>Duration</th>
+                                            <th>Status</th>
+                                            <th>Applied Date</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="loansTableBody">
+                                        <!-- Loans will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transactions Tab -->
+                <div id="transactions" class="tab-content">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-chart-line me-2"></i>Daily Transactions</h2>
+                        <div>
+                            <input type="date" class="form-control d-inline-block w-auto me-2" id="transactionDate" onchange="filterTransactions()">
+                            <button class="btn btn-primary me-2" onclick="refreshTransactions()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-success" onclick="showAddTransactionModal()">
+                                <i class="fas fa-plus me-1"></i>Record Payment
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Customer</th>
+                                            <th>Cash Received</th>
+                                            <th>Transfer</th>
+                                            <th>Pick Up</th>
+                                            <th>Closing Balance</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="transactionsTableBody">
+                                        <!-- Transactions will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ledger Tab -->
+                <div id="ledger" class="tab-content">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-table me-2"></i>Transaction Ledger</h2>
+                        <div>
+                            <input type="date" class="form-control d-inline-block w-auto me-2" id="ledgerDate" onchange="loadLedger()">
+                            <button class="btn btn-primary" onclick="refreshLedger()">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table ledger-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Previous Balance</th>
+                                            <th>Cash</th>
+                                            <th>Transfer</th>
+                                            <th>Pick Up</th>
+                                            <th>Registration</th>
+                                            <th>Insurance</th>
+                                            <th>Position Charges</th>
+                                            <th>Amount Disbursed</th>
+                                            <th>Bank</th>
+                                            <th>Cash Available</th>
+                                            <th>Next Disbursement</th>
+                                            <th>P. Disbursement</th>
+                                            <th>Record</th>
+                                            <th>Closing Balance</th>
+                                            <th>Transportation</th>
+                                            <th>Payment Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ledgerTableBody">
+                                        <!-- Ledger entries will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reports Tab -->
+                <div id="reports" class="tab-content">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2><i class="fas fa-file-alt me-2"></i>Reports & Analytics</h2>
+                        <div>
+                            <button class="btn btn-success me-2" onclick="generateDailyReport()">
+                                <i class="fas fa-download me-1"></i>Daily Report
+                            </button>
+                            <button class="btn btn-info" onclick="generateMonthlyReport()">
+                                <i class="fas fa-calendar me-1"></i>Monthly Report
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Daily Summary</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="dailySummary">
+                                        <!-- Daily summary will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Customer Performance</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="customerPerformance">
+                                        <!-- Customer performance will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Customer Modal -->
+    <div class="modal fade" id="addCustomerModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Register New Customer</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addCustomerForm">
+                        <!-- Personal Information Section -->
+                        <div class="customer-form-section">
+                            <h6 class="form-section-title">
+                                <i class="fas fa-user me-2"></i>Personal Information
+                            </h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Union/Group Name</label>
+                                        <input type="text" class="form-control" id="unionGroupName" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">First Name</label>
+                                        <input type="text" class="form-control" id="firstName" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Middle Name</label>
+                                        <input type="text" class="form-control" id="middleName">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Last Name</label>
+                                        <input type="text" class="form-control" id="lastName" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Marital Status</label>
+                                        <select class="form-select" id="maritalStatus" required>
+                                            <option value="">Select Status</option>
+                                            <option value="Single">Single</option>
+                                            <option value="Married">Married</option>
+                                            <option value="Widow">Widow</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Age</label>
+                                        <input type="number" class="form-control" id="age" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Date of Birth</label>
+                                        <input type="date" class="form-control" id="dateOfBirth" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Occupation/Type of Business</label>
+                                        <input type="text" class="form-control" id="occupation" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Business/Shop/Office Address</label>
+                                        <input type="text" class="form-control" id="businessAddress" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Nearest Bus Stop</label>
+                                        <input type="text" class="form-control" id="nearestBusStop" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Phone Number</label>
+                                        <input type="tel" class="form-control" id="phoneNumber" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">State of Origin</label>
+                                        <input type="text" class="form-control" id="stateOfOrigin" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Residential Address</label>
+                                        <input type="text" class="form-control" id="residentialAddress" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Loan Amount Requested</label>
+                                        <select class="form-select" id="loanAmountRequested" required>
+                                            <option value="">Select Amount</option>
+                                            <option value="30000">₦30,000</option>
+                                            <option value="40000">₦40,000</option>
+                                            <option value="50000">₦50,000</option>
+                                            <option value="60000">₦60,000</option>
+                                            <option value="80000">₦80,000</option>
+                                            <option value="100000">₦100,000</option>
+                                            <option value="150000">₦150,000</option>
+                                            <option value="200000">₦200,000</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Guarantor Information Section -->
+                        <div class="customer-form-section">
+                            <h6 class="form-section-title">
+                                <i class="fas fa-user-shield me-2"></i>Guarantor Information
+                            </h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Guarantor Name</label>
+                                        <input type="text" class="form-control" id="guarantorName" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Occupation/Type of Business</label>
+                                        <input type="text" class="form-control" id="guarantorOccupation" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Business/Shop/Office Address</label>
+                                        <input type="text" class="form-control" id="guarantorBusinessAddress" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Nearest Bus Stop</label>
+                                        <input type="text" class="form-control" id="guarantorNearestBusStop" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Phone Number</label>
+                                        <input type="tel" class="form-control" id="guarantorPhoneNumber" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">State of Origin</label>
+                                        <input type="text" class="form-control" id="guarantorStateOfOrigin" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Residential Address</label>
+                                        <input type="text" class="form-control" id="guarantorResidentialAddress" required>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="addCustomer()">
+                        <span class="btn-text">Register Customer</span>
+                        <span class="loading spinner-border spinner-border-sm ms-2"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Loan Modal -->
+    <div class="modal fade" id="addLoanModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">New Loan Application</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addLoanForm">
+                        <div class="mb-3">
+                            <label class="form-label">Select Customer</label>
+                            <select class="form-select" id="loanCustomer" required>
+                                <option value="">Choose Customer</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Loan Amount</label>
+                            <select class="form-select" id="loanAmount" required onchange="updateLoanDetails()">
+                                <option value="">Select Amount</option>
+                                <option value="30000">₦30,000</option>
+                                <option value="40000">₦40,000</option>
+                                <option value="50000">₦50,000</option>
+                                <option value="60000">₦60,000</option>
+                                <option value="80000">₦80,000</option>
+                                <option value="100000">₦100,000</option>
+                                <option value="150000">₦150,000</option>
+                                <option value="200000">₦200,000</option>
+                            </select>
+                        </div>
+                        <div id="loanDetails" class="alert alert-info" style="display: none;">
+                            <!-- Loan details will be shown here -->
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="addLoan()">
+                        <span class="btn-text">Submit Application</span>
+                        <span class="loading spinner-border spinner-border-sm ms-2"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Transaction Modal -->
+    <div class="modal fade" id="addTransactionModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Record Daily Payment</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addTransactionForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Date</label>
+                                    <input type="date" class="form-control" id="transactionDate" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Customer</label>
+                                    <select class="form-select" id="transactionCustomer" required>
+                                        <option value="">Select Customer</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Cash Received</label>
+                                    <input type="number" class="form-control" id="cashReceived" value="0" step="0.01">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Transfer Received</label>
+                                    <input type="number" class="form-control" id="transferReceived" value="0" step="0.01">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Pick Up</label>
+                                    <input type="number" class="form-control" id="pickUp" value="0" step="0.01">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Registration Fee</label>
+                                    <input type="number" class="form-control" id="registrationFee" value="0" step="0.01">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Insurance</label>
+                                    <input type="number" class="form-control" id="insurance" value="0" step="0.01">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Position Charges</label>
+                                    <input type="number" class="form-control" id="positionCharges" value="0" step="0.01">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Amount Disbursed</label>
+                                    <input type="number" class="form-control" id="amountDisbursed" value="0" step="0.01">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Bank</label>
+                                    <input type="text" class="form-control" id="bank" placeholder="Bank name">
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="addTransaction()">
+                        <span class="btn-text">Record Payment</span>
+                        <span class="loading spinner-border spinner-border-sm ms-2"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="agent.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-// server.js - Replit-ready Bank Ledger demo (SQLite)
+// Millennium Potter Bank Ledger Application - Server
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
@@ -9,210 +9,567 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
-// ensure .data exists (Replit persists .data)
+// ensure .data exists for persistence
 const dataDir = path.join(process.cwd(), '.data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
 // DB path inside .data for persistence
-const dbPath = path.join(dataDir, 'internal.db');
+const dbPath = path.join(dataDir, 'millennium_potter.db');
 const db = new sqlite3.Database(dbPath);
 
-// initialize tables
+// Initialize comprehensive database schema
 db.serialize(() => {
+  // Users table (Admin and Agents)
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE,
     password TEXT,
-    role TEXT
+    email TEXT UNIQUE,
+    fullName TEXT,
+    role TEXT CHECK(role IN ('admin', 'agent', 'subadmin')),
+    status TEXT DEFAULT 'active',
+    created_at TEXT,
+    last_login TEXT
   )`);
 
+  // Customers table with comprehensive fields
   db.run(`CREATE TABLE IF NOT EXISTS customers (
     id TEXT PRIMARY KEY,
     accountNumber TEXT UNIQUE,
-    name TEXT,
-    phone TEXT,
-    balance REAL DEFAULT 0,
-    agentId TEXT
+    unionGroupName TEXT,
+    firstName TEXT,
+    middleName TEXT,
+    lastName TEXT,
+    fullName TEXT,
+    maritalStatus TEXT,
+    age INTEGER,
+    occupation TEXT,
+    businessAddress TEXT,
+    nearestBusStop TEXT,
+    phoneNumber TEXT,
+    stateOfOrigin TEXT,
+    loanAmountRequested REAL,
+    residentialAddress TEXT,
+    dateOfBirth TEXT,
+    photoUrl TEXT,
+    documentsUrl TEXT,
+    agentId TEXT,
+    adminId TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TEXT,
+    FOREIGN KEY (agentId) REFERENCES users(id),
+    FOREIGN KEY (adminId) REFERENCES users(id)
   )`);
 
+  // Guarantors table
+  db.run(`CREATE TABLE IF NOT EXISTS guarantors (
+    id TEXT PRIMARY KEY,
+    customerId TEXT,
+    name TEXT,
+    occupation TEXT,
+    businessAddress TEXT,
+    nearestBusStop TEXT,
+    phoneNumber TEXT,
+    stateOfOrigin TEXT,
+    residentialAddress TEXT,
+    documentsUrl TEXT,
+    created_at TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id)
+  )`);
+
+  // Loans table with standardized loan structure
   db.run(`CREATE TABLE IF NOT EXISTS loans (
     id TEXT PRIMARY KEY,
     customerId TEXT,
     agentId TEXT,
-    amount REAL,
+    adminId TEXT,
+    loanAmount REAL,
+    dailyPayment REAL,
     duration INTEGER,
-    mode TEXT,
-    frequency TEXT,
-    installment REAL,
-    interest_rate REAL,
-    guarantor TEXT,
+    totalRepayment REAL,
     status TEXT DEFAULT 'pending',
-    created_at TEXT
+    approvedBy TEXT,
+    approvedAt TEXT,
+    disbursedAt TEXT,
+    completedAt TEXT,
+    created_at TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id),
+    FOREIGN KEY (agentId) REFERENCES users(id),
+    FOREIGN KEY (adminId) REFERENCES users(id),
+    FOREIGN KEY (approvedBy) REFERENCES users(id)
   )`);
 
-  db.run(`CREATE TABLE IF NOT EXISTS transactions (
+  // Daily transactions table
+  db.run(`CREATE TABLE IF NOT EXISTS daily_transactions (
     id TEXT PRIMARY KEY,
     customerId TEXT,
-    amount REAL,
-    type TEXT,
-    created_at TEXT
+    loanId TEXT,
+    agentId TEXT,
+    date TEXT,
+    previousBalance REAL,
+    cashReceived REAL,
+    transferReceived REAL,
+    pickUp REAL,
+    registrationFee REAL,
+    insurance REAL,
+    positionCharges REAL,
+    amountDisbursed REAL,
+    bank TEXT,
+    cashAvailable REAL,
+    nextDisbursement REAL,
+    pDisbursement REAL,
+    record TEXT,
+    closingBalance REAL,
+    transportation REAL,
+    paymentStatus TEXT DEFAULT 'pending',
+    created_at TEXT,
+    FOREIGN KEY (customerId) REFERENCES customers(id),
+    FOREIGN KEY (loanId) REFERENCES loans(id),
+    FOREIGN KEY (agentId) REFERENCES users(id)
   )`);
 
-  // seed default admin if not exists
+  // Monthly summaries table
+  db.run(`CREATE TABLE IF NOT EXISTS monthly_summaries (
+    id TEXT PRIMARY KEY,
+    agentId TEXT,
+    month TEXT,
+    year INTEGER,
+    totalCashReceived REAL,
+    totalPickUp REAL,
+    totalRegistration REAL,
+    totalInsurance REAL,
+    totalPositionCharges REAL,
+    totalAmountDisbursed REAL,
+    created_at TEXT,
+    FOREIGN KEY (agentId) REFERENCES users(id)
+  )`);
+
+  // Seed default admin if not exists
   db.get("SELECT COUNT(*) AS cnt FROM users WHERE role='admin'", (err, row) => {
     if (!err && row && row.cnt === 0) {
       const id = uuidv4();
-      db.run("INSERT INTO users (id, username, password, role) VALUES (?,?,?,?)",
-        [id, 'admin', 'admin123', 'admin']);
+      const now = new Date().toISOString();
+      db.run("INSERT INTO users (id, username, password, email, fullName, role, created_at) VALUES (?,?,?,?,?,?,?)",
+        [id, 'admin', 'admin123', 'admin@millenniumpotter.com', 'Master Administrator', 'admin', now]);
       console.log('Seeded admin -> username: admin password: admin123');
     }
   });
 });
 
-// --- Simple auth endpoints (demo-level, plaintext passwords for test)
+// Loan structure constants
+const LOAN_STRUCTURES = {
+  30000: { dailyPayment: 1500, duration: 30, totalRepayment: 45000 },
+  40000: { dailyPayment: 2000, duration: 25, totalRepayment: 50000 },
+  50000: { dailyPayment: 2500, duration: 25, totalRepayment: 62500 },
+  60000: { dailyPayment: 3000, duration: 25, totalRepayment: 75000 },
+  80000: { dailyPayment: 4000, duration: 25, totalRepayment: 100000 },
+  100000: { dailyPayment: 5000, duration: 25, totalRepayment: 125000 },
+  150000: { dailyPayment: 7500, duration: 25, totalRepayment: 187500 },
+  200000: { dailyPayment: 10000, duration: 25, totalRepayment: 250000 }
+};
+
+// Authentication endpoints
 app.post('/auth/login', (req, res) => {
   const { username, password } = req.body;
-  db.get("SELECT id, username, role FROM users WHERE username=? AND password=?", [username, password], (err, row) => {
+  const now = new Date().toISOString();
+  
+  db.get("SELECT id, username, email, fullName, role, status FROM users WHERE username=? AND password=? AND status='active'", 
+    [username, password], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(400).json({ error: 'invalid credentials' });
-    res.json({ ok: true, user: row });
-  });
-});
-
-// create agent user (signup) - agent needs admin approval (stored as user with role 'agent')
-app.post('/auth/signup-agent', (req, res) => {
-  const { username, password, name } = req.body;
-  const id = uuidv4();
-  db.run("INSERT INTO users (id, username, password, role) VALUES (?,?,?,?)", [id, username, password, 'agent'], function(err){
-    if (err) return res.status(500).json({ error: err.message });
-    // store agent record in users table actually covers role; admin will 'approve' by updating password/role back if needed in this demo flows.
-    res.json({ ok: true, id, username });
-  });
-});
-
-// Admin endpoints: list agents (we show users with role 'agent'), approve agent (set role to 'agent' - demo)
-app.get('/admin/agents', (req,res) => {
-  db.all("SELECT id, username, role FROM users WHERE role='agent' OR role='pending_agent'", (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Admin approves agent - for this demo we just ensure they exist (no separate flag)
-app.post('/admin/approve-agent', (req,res) => {
-  const { username } = req.body;
-  // in this simple demo we'll just respond ok (agents can be used immediately after sign up)
-  res.json({ ok: true });
-});
-
-// Create customer (by agent or admin)
-app.post('/customer', (req,res)=>{
-  const { name, phone, agentId } = req.body;
-  const id = uuidv4();
-  const accountNumber = 'AC' + Math.floor(100000 + Math.random()*900000);
-  db.run("INSERT INTO customers (id, accountNumber, name, phone, balance, agentId) VALUES (?,?,?,?,?,?)",
-    [id, accountNumber, name, phone, 0, agentId || null], function(err){
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ ok: true, customer: { id, accountNumber, name, phone, balance:0, agentId } });
+    if (!row) return res.status(400).json({ error: 'Invalid credentials' });
+    
+    // Update last login
+    db.run("UPDATE users SET last_login=? WHERE id=?", [now, row.id]);
+    
+    res.json({ 
+      ok: true, 
+      user: row,
+      token: row.id // Simple token for demo
     });
+  });
 });
 
-// List customers (admin: all, agent: filter by query param ?agentId=)
-app.get('/customers', (req,res)=>{
-  const agentId = req.query.agentId;
+app.post('/auth/signup', (req, res) => {
+  const { username, password, email, fullName, role } = req.body;
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  
+  db.run("INSERT INTO users (id, username, password, email, fullName, role, created_at) VALUES (?,?,?,?,?,?,?)", 
+    [id, username, password, email, fullName, role, now], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true, id, username, role });
+  });
+});
+
+// Customer registration endpoint
+app.post('/customer/register', (req, res) => {
+  const {
+    unionGroupName, firstName, middleName, lastName, maritalStatus, age,
+    occupation, businessAddress, nearestBusStop, phoneNumber, stateOfOrigin,
+    loanAmountRequested, residentialAddress, dateOfBirth, photoUrl, documentsUrl,
+    agentId, adminId,
+    guarantorName, guarantorOccupation, guarantorBusinessAddress, guarantorNearestBusStop,
+    guarantorPhoneNumber, guarantorStateOfOrigin, guarantorResidentialAddress, guarantorDocumentsUrl
+  } = req.body;
+  
+  const customerId = uuidv4();
+  const guarantorId = uuidv4();
+  const now = new Date().toISOString();
+  const accountNumber = 'MP' + Math.floor(100000 + Math.random() * 900000);
+  const fullName = `${firstName} ${middleName} ${lastName}`.trim();
+  
+  db.serialize(() => {
+    // Insert customer
+    db.run(`INSERT INTO customers (
+      id, accountNumber, unionGroupName, firstName, middleName, lastName, fullName,
+      maritalStatus, age, occupation, businessAddress, nearestBusStop, phoneNumber,
+      stateOfOrigin, loanAmountRequested, residentialAddress, dateOfBirth,
+      photoUrl, documentsUrl, agentId, adminId, created_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [customerId, accountNumber, unionGroupName, firstName, middleName, lastName, fullName,
+     maritalStatus, age, occupation, businessAddress, nearestBusStop, phoneNumber,
+     stateOfOrigin, loanAmountRequested, residentialAddress, dateOfBirth,
+     photoUrl, documentsUrl, agentId, adminId, now], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      
+      // Insert guarantor
+      db.run(`INSERT INTO guarantors (
+        id, customerId, name, occupation, businessAddress, nearestBusStop,
+        phoneNumber, stateOfOrigin, residentialAddress, documentsUrl, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [guarantorId, customerId, guarantorName, guarantorOccupation, guarantorBusinessAddress,
+       guarantorNearestBusStop, guarantorPhoneNumber, guarantorStateOfOrigin,
+       guarantorResidentialAddress, guarantorDocumentsUrl, now], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        res.json({ 
+          ok: true, 
+          customer: { id: customerId, accountNumber, fullName },
+          guarantor: { id: guarantorId, name: guarantorName }
+        });
+      });
+    });
+  });
+});
+
+// Get customers (with filters)
+app.get('/customers', (req, res) => {
+  const { agentId, adminId, status } = req.query;
+  let query = "SELECT c.*, g.name as guarantorName FROM customers c LEFT JOIN guarantors g ON c.id = g.customerId WHERE 1=1";
+  let params = [];
+  
   if (agentId) {
-    db.all("SELECT * FROM customers WHERE agentId=?", [agentId], (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    });
-  } else {
-    db.all("SELECT * FROM customers", [], (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    });
+    query += " AND c.agentId = ?";
+    params.push(agentId);
   }
-});
-
-// Transactions
-app.post('/transaction', (req,res)=>{
-  const { customerId, amount, type='deposit' } = req.body;
-  const id = uuidv4();
-  const now = new Date().toISOString();
-  db.get("SELECT balance FROM customers WHERE id=?", [customerId], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'customer not found' });
-    const newBal = (row.balance || 0) + Number(amount);
-    db.run("UPDATE customers SET balance=? WHERE id=?", [newBal, customerId], function(err){
-      if (err) return res.status(500).json({ error: err.message });
-      db.run("INSERT INTO transactions (id, customerId, amount, type, created_at) VALUES (?,?,?,?,?)", [id, customerId, amount, type, now]);
-      res.json({ ok: true, balance: newBal });
-    });
-  });
-});
-
-// Loan apply (agent submits request)
-app.post('/loan/apply', (req,res)=>{
-  const { customerId, amount, duration, mode='fixed', frequency='daily', installment=0, interest_rate=0, guarantor } = req.body;
-  const id = uuidv4();
-  const now = new Date().toISOString();
-  db.run(`INSERT INTO loans (id, customerId, agentId, amount, duration, mode, frequency, installment, interest_rate, guarantor, status, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [id, customerId, null, amount, duration, mode, frequency, installment, interest_rate, guarantor, 'pending', now], function(err){
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ ok: true, loanId: id });
-    });
-});
-
-// Admin approve / reject loans
-app.post('/admin/loan/:id/approve', (req,res)=>{
-  const id = req.params.id;
-  db.run("UPDATE loans SET status='approved' WHERE id=?", [id], function(err){
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ ok: true });
-  });
-});
-app.post('/admin/loan/:id/reject', (req,res)=>{
-  const id = req.params.id;
-  db.run("UPDATE loans SET status='rejected' WHERE id=?", [id], function(err){
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ ok: true });
-  });
-});
-
-app.get('/loans', (req,res) => {
-  db.all("SELECT * FROM loans", [], (err, rows) => {
+  if (adminId) {
+    query += " AND c.adminId = ?";
+    params.push(adminId);
+  }
+  if (status) {
+    query += " AND c.status = ?";
+    params.push(status);
+  }
+  
+  query += " ORDER BY c.created_at DESC";
+  
+  db.all(query, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-// Loan calculator endpoint (fixed and interest)
-app.post('/loan/calc', (req,res)=>{
-  const { amount, installment, mode, interest_rate, duration } = req.body;
-  const a = Number(amount || 0);
-  if (mode === 'fixed') {
-    const periods = Math.ceil(a / Number(installment || 1));
-    const total = periods * Number(installment || 0);
-    const schedule = [];
-    for (let i=1;i<=periods;i++) schedule.push({ period:i, payment: Number(installment) });
-    return res.json({ periods, total, schedule });
-  } else {
-    const rate = Number(interest_rate || 0) / 100;
-    // assume duration is in months
-    const totalInterest = a * rate * (Number(duration || 0)/12);
-    const total = a + totalInterest;
-    const monthly = total / Number(duration || 1);
-    const schedule = [];
-    for (let i=1;i<=Number(duration);i++) schedule.push({ period:i, payment: Number(monthly.toFixed(2)) });
-    return res.json({ periods: Number(duration), total, schedule });
+// Loan application endpoint
+app.post('/loan/apply', (req, res) => {
+  const { customerId, loanAmount, agentId, adminId } = req.body;
+  
+  if (!LOAN_STRUCTURES[loanAmount]) {
+    return res.status(400).json({ error: 'Invalid loan amount. Must be one of: 30000, 40000, 50000, 60000, 80000, 100000, 150000, 200000' });
   }
+  
+  const loanStructure = LOAN_STRUCTURES[loanAmount];
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  
+  db.run(`INSERT INTO loans (
+    id, customerId, agentId, adminId, loanAmount, dailyPayment, duration,
+    totalRepayment, status, created_at
+  ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  [id, customerId, agentId, adminId, loanAmount, loanStructure.dailyPayment,
+   loanStructure.duration, loanStructure.totalRepayment, 'pending', now], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true, loanId: id, loanStructure });
+  });
 });
 
-// serve index
-app.get('/', (req,res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Admin loan approval/rejection
+app.post('/admin/loan/:id/approve', (req, res) => {
+  const { id } = req.params;
+  const { adminId } = req.body;
+  const now = new Date().toISOString();
+  
+  db.run("UPDATE loans SET status='approved', approvedBy=?, approvedAt=? WHERE id=?", 
+    [adminId, now, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
+});
 
-// start server on the port Replit expects
+app.post('/admin/loan/:id/reject', (req, res) => {
+  const { id } = req.params;
+  const { adminId } = req.body;
+  const now = new Date().toISOString();
+  
+  db.run("UPDATE loans SET status='rejected', approvedBy=?, approvedAt=? WHERE id=?", 
+    [adminId, now, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
+});
+
+// Get loans with filters
+app.get('/loans', (req, res) => {
+  const { agentId, adminId, status, customerId } = req.query;
+  let query = `SELECT l.*, c.fullName as customerName, c.accountNumber, u.fullName as agentName 
+               FROM loans l 
+               LEFT JOIN customers c ON l.customerId = c.id 
+               LEFT JOIN users u ON l.agentId = u.id 
+               WHERE 1=1`;
+  let params = [];
+  
+  if (agentId) {
+    query += " AND l.agentId = ?";
+    params.push(agentId);
+  }
+  if (adminId) {
+    query += " AND l.adminId = ?";
+    params.push(adminId);
+  }
+  if (status) {
+    query += " AND l.status = ?";
+    params.push(status);
+  }
+  if (customerId) {
+    query += " AND l.customerId = ?";
+    params.push(customerId);
+  }
+  
+  query += " ORDER BY l.created_at DESC";
+  
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Daily transaction recording
+app.post('/transaction/daily', (req, res) => {
+  const {
+    customerId, loanId, agentId, date, previousBalance, cashReceived, transferReceived,
+    pickUp, registrationFee, insurance, positionCharges, amountDisbursed, bank,
+    cashAvailable, nextDisbursement, pDisbursement, record, closingBalance, transportation
+  } = req.body;
+  
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  
+  db.run(`INSERT INTO daily_transactions (
+    id, customerId, loanId, agentId, date, previousBalance, cashReceived, transferReceived,
+    pickUp, registrationFee, insurance, positionCharges, amountDisbursed, bank,
+    cashAvailable, nextDisbursement, pDisbursement, record, closingBalance, transportation, created_at
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  [id, customerId, loanId, agentId, date, previousBalance, cashReceived, transferReceived,
+   pickUp, registrationFee, insurance, positionCharges, amountDisbursed, bank,
+   cashAvailable, nextDisbursement, pDisbursement, record, closingBalance, transportation, now], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true, transactionId: id });
+  });
+});
+
+// Get daily transactions
+app.get('/transactions/daily', (req, res) => {
+  const { agentId, customerId, loanId, date } = req.query;
+  let query = `SELECT dt.*, c.fullName as customerName, c.accountNumber, l.loanAmount, l.dailyPayment
+               FROM daily_transactions dt
+               LEFT JOIN customers c ON dt.customerId = c.id
+               LEFT JOIN loans l ON dt.loanId = l.id
+               WHERE 1=1`;
+  let params = [];
+  
+  if (agentId) {
+    query += " AND dt.agentId = ?";
+    params.push(agentId);
+  }
+  if (customerId) {
+    query += " AND dt.customerId = ?";
+    params.push(customerId);
+  }
+  if (loanId) {
+    query += " AND dt.loanId = ?";
+    params.push(loanId);
+  }
+  if (date) {
+    query += " AND dt.date = ?";
+    params.push(date);
+  }
+  
+  query += " ORDER BY dt.date DESC, dt.created_at DESC";
+  
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Monthly summary
+app.post('/summary/monthly', (req, res) => {
+  const { agentId, month, year } = req.body;
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  
+  // Calculate totals from daily transactions
+  const query = `SELECT 
+    SUM(cashReceived + transferReceived) as totalCashReceived,
+    SUM(pickUp) as totalPickUp,
+    SUM(registrationFee) as totalRegistration,
+    SUM(insurance) as totalInsurance,
+    SUM(positionCharges) as totalPositionCharges,
+    SUM(amountDisbursed) as totalAmountDisbursed
+    FROM daily_transactions 
+    WHERE agentId = ? AND strftime('%m', date) = ? AND strftime('%Y', date) = ?`;
+  
+  db.get(query, [agentId, month, year], (err, totals) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    db.run(`INSERT INTO monthly_summaries (
+      id, agentId, month, year, totalCashReceived, totalPickUp, totalRegistration,
+      totalInsurance, totalPositionCharges, totalAmountDisbursed, created_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [id, agentId, month, year, totals.totalCashReceived || 0, totals.totalPickUp || 0,
+     totals.totalRegistration || 0, totals.totalInsurance || 0, totals.totalPositionCharges || 0,
+     totals.totalAmountDisbursed || 0, now], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ ok: true, summaryId: id, totals });
+    });
+  });
+});
+
+// Get monthly summaries
+app.get('/summary/monthly', (req, res) => {
+  const { agentId, month, year } = req.query;
+  let query = "SELECT * FROM monthly_summaries WHERE 1=1";
+  let params = [];
+  
+  if (agentId) {
+    query += " AND agentId = ?";
+    params.push(agentId);
+  }
+  if (month) {
+    query += " AND month = ?";
+    params.push(month);
+  }
+  if (year) {
+    query += " AND year = ?";
+    params.push(year);
+  }
+  
+  query += " ORDER BY year DESC, month DESC";
+  
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Get users (agents/admins)
+app.get('/users', (req, res) => {
+  const { role, status } = req.query;
+  let query = "SELECT id, username, email, fullName, role, status, created_at, last_login FROM users WHERE 1=1";
+  let params = [];
+  
+  if (role) {
+    query += " AND role = ?";
+    params.push(role);
+  }
+  if (status) {
+    query += " AND status = ?";
+    params.push(status);
+  }
+  
+  query += " ORDER BY created_at DESC";
+  
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Dashboard statistics
+app.get('/dashboard/stats', (req, res) => {
+  const { agentId, adminId } = req.query;
+  
+  const stats = {};
+  
+  // Customer count
+  let customerQuery = "SELECT COUNT(*) as count FROM customers WHERE 1=1";
+  let customerParams = [];
+  if (agentId) {
+    customerQuery += " AND agentId = ?";
+    customerParams.push(agentId);
+  }
+  if (adminId) {
+    customerQuery += " AND adminId = ?";
+    customerParams.push(adminId);
+  }
+  
+  db.get(customerQuery, customerParams, (err, customerCount) => {
+    if (err) return res.status(500).json({ error: err.message });
+    stats.customers = customerCount.count;
+    
+    // Loan count
+    let loanQuery = "SELECT COUNT(*) as count, SUM(loanAmount) as totalAmount FROM loans WHERE 1=1";
+    let loanParams = [];
+    if (agentId) {
+      loanQuery += " AND agentId = ?";
+      loanParams.push(agentId);
+    }
+    if (adminId) {
+      loanQuery += " AND adminId = ?";
+      loanParams.push(adminId);
+    }
+    
+    db.get(loanQuery, loanParams, (err, loanStats) => {
+      if (err) return res.status(500).json({ error: err.message });
+      stats.loans = loanStats.count;
+      stats.totalLoanAmount = loanStats.totalAmount || 0;
+      
+      // Transaction count
+      let txQuery = "SELECT COUNT(*) as count, SUM(cashReceived + transferReceived) as totalReceived FROM daily_transactions WHERE 1=1";
+      let txParams = [];
+      if (agentId) {
+        txQuery += " AND agentId = ?";
+        txParams.push(agentId);
+      }
+      
+      db.get(txQuery, txParams, (err, txStats) => {
+        if (err) return res.status(500).json({ error: err.message });
+        stats.transactions = txStats.count;
+        stats.totalReceived = txStats.totalReceived || 0;
+        
+        res.json(stats);
+      });
+    });
+  });
+});
+
+// Serve static files
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+app.get('/agent', (req, res) => res.sendFile(path.join(__dirname, 'agent.html')));
+
+// Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Server listening on port', PORT));
+app.listen(PORT, () => console.log(`Millennium Potter Bank Ledger Server running on port ${PORT}`));
